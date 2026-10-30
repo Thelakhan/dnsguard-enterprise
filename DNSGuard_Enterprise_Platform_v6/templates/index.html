@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNSGuard Enterprise SOC - Visualization Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0b0f19; color: #f8fafc; }
+        .glass-panel { background: rgba(17, 24, 39, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); backdrop-filter: blur(12px); }
+        .spinner { border: 4px solid rgba(255,255,255,0.1); width: 40px; height: 40px; border-radius: 50%; border-left-color: #3b82f6; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .active-tab { background: linear-gradient(90deg, rgba(59, 130, 246, 0.2) 0%, rgba(59, 130, 246, 0.05) 100%); border-left: 4px solid #3b82f6; color: #60a5fa; }
+        .inactive-tab { color: #94a3b8; border-left: 4px solid transparent; }
+        .inactive-tab:hover { background-color: rgba(30, 41, 59, 0.6); color: white; }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden">
+
+    <!-- SIDEBAR -->
+    <aside class="w-64 glass-panel flex flex-col hidden md:flex border-r border-slate-800">
+        <div class="h-16 flex items-center px-6 border-b border-slate-800">
+            <i class="fa-solid fa-shield-halved text-blue-500 text-2xl mr-3"></i>
+            <h1 class="text-lg font-bold tracking-wider">DNS<span class="text-blue-500">GUARD</span></h1>
+        </div>
+        <nav class="flex-1 px-4 py-6 space-y-2">
+            <a href="#" onclick="switchTab('dashboard')" id="nav-dashboard" class="flex items-center px-4 py-3 rounded-lg transition-all active-tab font-medium">
+                <i class="fa-solid fa-chart-pie w-6 mr-3 text-blue-400"></i> Visual SOC Analytics
+            </a>
+            <a href="#" onclick="switchTab('rules')" id="nav-rules" class="flex items-center px-4 py-3 rounded-lg transition-all inactive-tab font-medium">
+                <i class="fa-solid fa-sliders w-6 mr-3"></i> Detection Rules
+            </a>
+        </nav>
+        <div class="p-4 border-t border-slate-800">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+                <span>Enterprise v6.0</span>
+                <span class="flex items-center text-emerald-400"><span class="w-2 h-2 bg-emerald-500 rounded-full animate-ping mr-1.5"></span> Live Engine</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 flex flex-col h-screen overflow-y-auto">
+        <header class="glass-panel border-b border-slate-800 px-8 py-4 sticky top-0 z-20 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h2 class="text-xl font-bold tracking-tight text-white" id="headerTitle">Security Operations Center & Threat Visualizer</h2>
+                <p class="text-xs text-slate-400 mt-0.5" id="headerSub">Multi-file PCAP/CSV ingestion with real-time risk scoring and graph analytics</p>
+            </div>
+            
+            <div id="uploadSection" class="flex items-center space-x-3 bg-slate-900/80 p-2 rounded-xl border border-slate-700 shadow-inner">
+                <input type="file" id="fileInput" multiple accept=".pcap,.pcapng,.csv" class="text-xs text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500 cursor-pointer"/>
+                <button onclick="uploadFiles()" class="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-5 py-2 rounded-lg shadow-lg font-semibold text-xs tracking-wide transition flex items-center whitespace-nowrap">
+                    <i class="fa-solid fa-bolt mr-2"></i> Run Deep Analysis
+                </button>
+            </div>
+        </header>
+
+        <div id="loadingOverlay" class="hidden absolute inset-0 bg-slate-950/85 z-50 flex flex-col items-center justify-center backdrop-blur-md">
+            <div class="spinner mb-4"></div>
+            <h3 class="text-xl font-bold text-blue-400">Parsing & Analyzing Datasets...</h3>
+            <p class="text-slate-400 text-sm mt-1">Calculating Shannon entropy, subdomain lengths, beaconing frequency, and risk scores</p>
+        </div>
+
+        <!-- DASHBOARD TAB -->
+        <div class="p-8 space-y-6" id="tab-dashboard">
+            <div id="fileStatusBanner" class="hidden glass-panel px-6 py-3 rounded-xl border-l-4 border-blue-500 flex items-center justify-between text-sm text-slate-300 shadow-lg">
+                <span><i class="fa-solid fa-circle-check text-blue-400 mr-2"></i> Successfully ingested and correlated <strong id="fileCountText" class="text-white">0</strong> log dataset(s). Unified security timeline active.</span>
+                <span class="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/30 px-3 py-1 rounded-full font-mono">Engine: Active</span>
+            </div>
+
+            <!-- KPI CARDS -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="glass-panel p-6 rounded-2xl shadow-xl border-t-4 border-blue-500 relative overflow-hidden">
+                    <div class="absolute right-4 top-4 text-blue-500/10 text-5xl"><i class="fa-solid fa-network-wired"></i></div>
+                    <h3 class="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-1">Total DNS Records</h3>
+                    <div class="text-3xl font-ext500 font-bold text-white" id="kpiTotal">0</div>
+                    <div class="text-xs text-blue-400 mt-2 flex items-center"><i class="fa-solid fa-arrow-trend-up mr-1"></i> Ingested telemetry</div>
+                </div>
+                <div class="glass-panel p-6 rounded-2xl shadow-xl border-t-4 border-rose-500 relative overflow-hidden">
+                    <div class="absolute right-4 top-4 text-rose-500/10 text-5xl"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <h3 class="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-1">Generated Threat Alerts</h3>
+                    <div class="text-3xl font-bold text-rose-400" id="kpiAlerts">0</div>
+                    <div class="text-xs text-rose-400 mt-2 flex items-center"><i class="fa-solid fa-shield-cat mr-1"></i> Anomalies flagged</div>
+                </div>
+                <div class="glass-panel p-6 rounded-2xl shadow-xl border-t-4 border-purple-500 relative overflow-hidden">
+                    <div class="absolute right-4 top-4 text-purple-500/10 text-5xl"><i class="fa-solid fa-fingerprint"></i></div>
+                    <h3 class="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-1">Top Query Type</h3>
+                    <div class="text-3xl font-bold text-purple-300" id="kpiQType">-</div>
+                    <div class="text-xs text-purple-400 mt-2 flex items-center"><i class="fa-solid fa-code-branch mr-1"></i> Primary record protocol</div>
+                </div>
+                <div class="glass-panel p-6 rounded-2xl shadow-xl border-t-4 border-emerald-500 relative overflow-hidden">
+                    <div class="absolute right-4 top-4 text-emerald-500/10 text-5xl"><i class="fa-solid fa-globe"></i></div>
+                    <h3 class="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-1">Unique Target Domains</h3>
+                    <div class="text-3xl font-bold text-emerald-400 truncate" id="kpiDomains">0</div>
+                    <div class="text-xs text-emerald-400 mt-2 flex items-center"><i class="fa-solid fa-bullseye mr-1"></i> Unique destinations</div>
+                </div>
+            </div>
+
+            <!-- CHARTS ROW 1: Timeline & Query Types -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="glass-panel p-6 rounded-2xl shadow-xl lg:col-span-2">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold text-slate-100 flex items-center"><i class="fa-solid fa-wave-square text-blue-400 mr-2"></i> Unified Threat Activity Timeline</h3>
+                        <span class="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-lg border border-slate-700">Normal vs Anomalous Traffic</span>
+                    </div>
+                    <div class="relative h-72 w-full">
+                        <canvas id="timelineChart"></canvas>
+                    </div>
+                </div>
+                <div class="glass-panel p-6 rounded-2xl shadow-xl">
+                    <h3 class="font-bold text-slate-100 mb-4 flex items-center"><i class="fa-solid fa-chart-pie text-purple-400 mr-2"></i> DNS Query Distribution</h3>
+                    <div class="relative h-72 w-full flex justify-center items-center">
+                        <canvas id="qtypeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CHARTS ROW 2: Severity Breakdown & Risk Score Distribution -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="glass-panel p-6 rounded-2xl shadow-xl">
+                    <h3 class="font-bold text-slate-100 mb-4 flex items-center"><i class="fa-solid fa-chart-column text-rose-400 mr-2"></i> Alert Severity Breakdown (Critical / High / Med / Low)</h3>
+                    <div class="relative h-64 w-full">
+                        <canvas id="severityBarChart"></canvas>
+                    </div>
+                </div>
+                <div class="glass-panel p-6 rounded-2xl shadow-xl flex flex-col justify-between">
+                    <div>
+                        <h3 class="font-bold text-slate-100 mb-2 flex items-center"><i class="fa-solid fa-shield-virus text-emerald-400 mr-2"></i> Threat Engine Metrics & Heuristics</h3>
+                        <p class="text-xs text-slate-400 mb-4">Real-time indicators processed by Shannon Entropy, Subdomain Length, and Beaconing Frequency rules.</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 my-auto">
+                        <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800 text-center">
+                            <div class="text-2xl font-bold text-blue-400" id="statAvgEntropy">0.0</div>
+                            <div class="text-xs text-slate-400 mt-1">Avg Max Entropy</div>
+                        </div>
+                        <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-800 text-center">
+                            <div class="text-2xl font-bold text-rose-400" id="statMaxRisk">0 / 100</div>
+                            <div class="text-xs text-slate-400 mt-1">Peak Risk Score</div>
+                        </div>
+                    </div>
+                    <div class="text-xs text-slate-500 text-right mt-2"><i class="fa-solid fa-circle-info mr-1"></i> Evaluated via multi-indicator correlation</div>
+                </div>
+            </div>
+
+            <!-- ALERTS TABLE WITH INTERACTIVE FILTERS -->
+            <div class="glass-panel rounded-2xl shadow-xl overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-800 flex flex-col md:flex-row justify-between items-center gap-4">
+                    <h3 class="font-bold text-slate-100 flex items-center"><i class="fa-solid fa-list-check text-blue-400 mr-2"></i> Multi-Heuristic Detections & Risk Log</h3>
+                    <div class="flex items-center space-x-3 w-full md:w-auto">
+                        <input type="text" id="tableSearch" onkeyup="filterAlertsTable()" placeholder="Search IP or domain..." class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 w-full md:w-64">
+                        <select id="severityFilter" onchange="filterAlertsTable()" class="bg-slate-900 border border-slate-700 text-xs rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+                            <option value="">All Severities</option>
+                            <option value="CRITICAL">Critical</option>
+                            <option value="HIGH">High</option>
+                            <option value="MEDIUM">Medium</option>
+                            <option value="LOW">Low</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                    <table class="w-full text-xs text-left" id="alertsTable">
+                        <thead class="text-slate-400 uppercase bg-slate-900/90 sticky top-0 border-b border-slate-800">
+                            <tr>
+                                <th class="px-6 py-3.5">Timestamp</th>
+                                <th class="px-6 py-3.5">Source IP</th>
+                                <th class="px-6 py-3.5">Query / Target Domain</th>
+                                <th class="px-6 py-3.5">Type</th>
+                                <th class="px-6 py-3.5">Entropy</th>
+                                <th class="px-6 py-3.5">Risk Score</th>
+                                <th class="px-6 py-3.5">Trigger Reason</th>
+                                <th class="px-6 py-3.5">Severity</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60" id="alertsTableBody">
+                            <tr>
+                                <td colspan="8" class="px-6 py-10 text-center text-slate-500 italic">Select multiple PCAP or CSV files and click "Run Deep Analysis" to populate visual telemetry...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- RULES CONFIGURATION TAB -->
+        <div class="p-8 space-y-6 hidden" id="tab-rules">
+            <div class="glass-panel p-8 rounded-2xl shadow-xl border-t-4 border-emerald-500 max-w-4xl mx-auto">
+                <h2 class="text-2xl font-bold text-white mb-2">Engine Rules & Thresholds</h2>
+                <p class="text-slate-400 mb-8 text-sm">Fine-tune the heuristics used by the DNSGuard detection engine. Changes are applied instantly to the backend.</p>
+                
+                <form id="rulesForm" onsubmit="saveRules(event)" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div class="bg-slate-900/50 p-5 rounded-xl border border-slate-800">
+                            <h3 class="font-semibold text-blue-400 mb-1 text-sm"><i class="fa-solid fa-dice mr-2"></i>Shannon Entropy</h3>
+                            <p class="text-xs text-slate-400 mb-4">Flags randomized, base64-encoded, or encrypted subdomains.</p>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1">Warning</label>
+                                    <input type="number" step="0.1" id="r-entropy-warn" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1">Critical</label>
+                                    <input type="number" step="0.1" id="r-entropy-crit" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-900/50 p-5 rounded-xl border border-slate-800">
+                            <h3 class="font-semibold text-blue-400 mb-1 text-sm"><i class="fa-solid fa-text-width mr-2"></i>Subdomain Length</h3>
+                            <p class="text-xs text-slate-400 mb-4">Detects data exfiltration packed into long subdomain labels.</p>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1">Warning</label>
+                                    <input type="number" id="r-length-warn" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1">Critical</label>
+                                    <input type="number" id="r-length-crit" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-900/50 p-5 rounded-xl border border-slate-800">
+                            <h3 class="font-semibold text-blue-400 mb-1 text-sm"><i class="fa-solid fa-stopwatch mr-2"></i>Beaconing Frequency</h3>
+                            <p class="text-xs text-slate-400 mb-4">Detects aggressive polling by tracking queries per window.</p>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1">Window (Secs)</label>
+                                    <input type="number" id="r-freq-window" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500" disabled>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1">Max Queries</label>
+                                    <input type="number" id="r-freq-max" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-900/50 p-5 rounded-xl border border-slate-800">
+                            <h3 class="font-semibold text-blue-400 mb-1 text-sm"><i class="fa-solid fa-ban mr-2"></i>NXDOMAIN Rate</h3>
+                            <p class="text-xs text-slate-400 mb-4">Detects Domain Generation Algorithms (DGA).</p>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1">Min Queries</label>
+                                    <input type="number" id="r-nx-min" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-300 mb-1">Threshold (%)</label>
+                                    <input type="number" step="1" id="r-nx-rate" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900/50 p-5 rounded-xl border border-slate-800">
+                        <h3 class="font-semibold text-blue-400 mb-1 text-sm"><i class="fa-solid fa-list-check mr-2"></i>Global Allowlist</h3>
+                        <p class="text-xs text-slate-400 mb-4">Traffic ending in these domains will be bypassed (comma separated).</p>
+                        <textarea id="r-allowlist" rows="3" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-500"></textarea>
+                    </div>
+
+                    <div class="flex justify-end items-center mt-6 pt-4 border-t border-slate-800">
+                        <span id="saveStatus" class="text-emerald-400 text-xs font-semibold mr-4 opacity-0 transition-opacity">Rules Applied Successfully!</span>
+                        <button type="submit" class="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-xl shadow-lg transition flex items-center font-semibold text-xs">
+                            <i class="fa-solid fa-save mr-2"></i> Save & Apply Rules
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let timelineChartInst = null;
+        let qtypeChartInst = null;
+        let severityBarChartInst = null;
+        let globalAlertsCache = [];
+
+        function initCharts() {
+            // Timeline Chart
+            const ctxTimeline = document.getElementById('timelineChart').getContext('2d');
+            timelineChartInst = new Chart(ctxTimeline, {
+                type: 'line', 
+                data: { labels: [], datasets: [] },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    scales: { 
+                        x: { grid: { color: 'rgba(255,255,255,0.03)'}, ticks: {color: '#94a3b8', font: {size: 11}} }, 
+                        y: { grid: { color: 'rgba(255,255,255,0.03)'}, ticks: {color: '#94a3b8', font: {size: 11}} } 
+                    }, 
+                    plugins: { legend: { labels: { color: '#cbd5e1', font: {size: 11} } } } 
+                }
+            });
+
+            // Doughnut QType Chart
+            const ctxQtype = document.getElementById('qtypeChart').getContext('2d');
+            qtypeChartInst = new Chart(ctxQtype, {
+                type: 'doughnut', 
+                data: { labels: [], datasets: [] },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    cutout: '70%', 
+                    plugins: { legend: { position: 'bottom', labels: { color: '#cbd5e1', font: {size: 11}, boxWidth: 12 } } } 
+                }
+            });
+
+            // Severity Bar Chart
+            const ctxSeverity = document.getElementById('severityBarChart').getContext('2d');
+            severityBarChartInst = new Chart(ctxSeverity, {
+                type: 'bar',
+                data: {
+                    labels: ['Critical', 'High', 'Medium', 'Low'],
+                    datasets: [{
+                        label: 'Alert Count by Severity',
+                        data: [0, 0, 0, 0],
+                        backgroundColor: ['#f43f5e', '#f59e0b', '#3b82f6', '#10b981'],
+                        borderRadius: 6,
+                        borderSkipped: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8', font: {size: 11} } },
+                        y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#94a3b8', font: {size: 11}, precision: 0 } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+        initCharts();
+        loadRules();
+
+        function switchTab(tabName) {
+            document.getElementById('tab-dashboard').classList.add('hidden');
+            document.getElementById('tab-rules').classList.add('hidden');
+            document.getElementById('nav-dashboard').classList.replace('active-tab', 'inactive-tab');
+            document.getElementById('nav-rules').classList.replace('active-tab', 'inactive-tab');
+            
+            document.getElementById('tab-' + tabName).classList.remove('hidden');
+            document.getElementById('nav-' + tabName).classList.replace('inactive-tab', 'active-tab');
+
+            if(tabName === 'dashboard') {
+                document.getElementById('uploadSection').style.display = 'flex';
+                document.getElementById('headerTitle').innerText = 'Security Operations Center & Threat Visualizer';
+                document.getElementById('headerSub').innerText = 'Multi-file PCAP/CSV ingestion with real-time risk scoring and graph analytics';
+            } else {
+                document.getElementById('uploadSection').style.display = 'none';
+                document.getElementById('headerTitle').innerText = 'Engine Configuration';
+                document.getElementById('headerSub').innerText = 'Modify live detection parameters and thresholds';
+                loadRules();
+            }
+        }
+
+        async function loadRules() {
+            try {
+                const res = await fetch('/api/rules');
+                const data = await res.json();
+                document.getElementById('r-entropy-warn').value = data.thresholds.entropy.warning;
+                document.getElementById('r-entropy-crit').value = data.thresholds.entropy.critical;
+                document.getElementById('r-length-warn').value = data.thresholds.subdomain_length.warning;
+                document.getElementById('r-length-crit').value = data.thresholds.subdomain_length.critical;
+                document.getElementById('r-freq-window').value = data.thresholds.frequency.window_seconds;
+                document.getElementById('r-freq-max').value = data.thresholds.frequency.max_queries_per_window;
+                document.getElementById('r-nx-min').value = data.thresholds.nxdomain_rate.min_queries;
+                document.getElementById('r-nx-rate').value = data.thresholds.nxdomain_rate.critical_percentage;
+                document.getElementById('r-allowlist').value = data.allowlist.join(', ');
+            } catch (err) { console.error('Failed to load rules', err); }
+        }
+
+        async function saveRules(e) {
+            e.preventDefault();
+            const newConfig = {
+                thresholds: {
+                    entropy: {
+                        warning: parseFloat(document.getElementById('r-entropy-warn').value),
+                        critical: parseFloat(document.getElementById('r-entropy-crit').value)
+                    },
+                    subdomain_length: {
+                        warning: parseInt(document.getElementById('r-length-warn').value),
+                        critical: parseInt(document.getElementById('r-length-crit').value)
+                    },
+                    frequency: {
+                        window_seconds: parseInt(document.getElementById('r-freq-window').value),
+                        max_queries_per_window: parseInt(document.getElementById('r-freq-max').value)
+                    },
+                    nxdomain_rate: {
+                        min_queries: parseInt(document.getElementById('r-nx-min').value),
+                        critical_percentage: parseFloat(document.getElementById('r-nx-rate').value)
+                    }
+                },
+                allowlist: document.getElementById('r-allowlist').value.split(',').map(s => s.trim()).filter(s => s.length > 0)
+            };
+
+            try {
+                const res = await fetch('/api/rules', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newConfig)
+                });
+                if (res.ok) {
+                    const status = document.getElementById('saveStatus');
+                    status.style.opacity = '1';
+                    setTimeout(() => status.style.opacity = '0', 3000);
+                }
+            } catch (err) { alert('Error saving rules: ' + err.message); }
+        }
+
+        async function uploadFiles() {
+            const fileInput = document.getElementById('fileInput');
+            if (!fileInput.files.length) { alert('Please select one or more PCAP or CSV files first.'); return; }
+            
+            const formData = new FormData();
+            for (let i = 0; i < fileInput.files.length; i++) {
+                formData.append('files', fileInput.files[i]);
+            }
+            
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Server error');
+                
+                document.getElementById('fileStatusBanner').classList.remove('hidden');
+                document.getElementById('fileCountText').innerText = data.processed_files_count || fileInput.files.length;
+                updateDashboard(data);
+            } catch (error) { alert('Analysis failed: ' + error.message); } 
+            finally { document.getElementById('loadingOverlay').classList.add('hidden'); fileInput.value = ''; }
+        }
+
+        function updateDashboard(data) {
+            document.getElementById('kpiTotal').innerText = data.kpis.total_analyzed.toLocaleString();
+            document.getElementById('kpiAlerts').innerText = data.kpis.alerts_count.toLocaleString();
+            document.getElementById('kpiQType').innerText = data.kpis.top_qtype;
+            document.getElementById('kpiDomains').innerText = data.kpis.unique_domains.toLocaleString();
+
+            globalAlertsCache = data.alerts || [];
+            renderAlertsTable(globalAlertsCache);
+
+            // Compute auxiliary metrics for stats cards
+            if (globalAlertsCache.length > 0) {
+                const totalEntropy = globalAlertsCache.reduce((sum, a) => sum + (a.entropy || 0), 0);
+                document.getElementById('statAvgEntropy').innerText = (totalEntropy / globalAlertsCache.length).toFixed(2);
+                const maxRisk = Math.max(...globalAlertsCache.map(a => a.risk_score || 0));
+                document.getElementById('statMaxRisk').innerText = maxRisk.toFixed(0) + ' / 100';
+            } else {
+                document.getElementById('statAvgEntropy').innerText = '0.0';
+                document.getElementById('statMaxRisk').innerText = '0 / 100';
+            }
+
+            // Timeline Chart
+            timelineChartInst.data = {
+                labels: data.timeline.labels,
+                datasets: [
+                    { label: 'Normal Traffic', data: data.timeline.normal, borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.4, borderWidth: 2 },
+                    { label: 'Anomalies', data: data.timeline.suspicious, borderColor: '#f43f5e', backgroundColor: 'rgba(244, 63, 94, 0.1)', borderDash: [4, 4], fill: true, tension: 0.4, borderWidth: 2 }
+                ]
+            }; 
+            timelineChartInst.update();
+
+            // QType Doughnut Chart
+            const bgColors = ['#3b82f6', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6', '#06b6d4'];
+            qtypeChartInst.data = { 
+                labels: data.qtypes.labels, 
+                datasets: [{ data: data.qtypes.data, backgroundColor: bgColors.slice(0, data.qtypes.labels.length), borderWidth: 0 }] 
+            }; 
+            qtypeChartInst.update();
+
+            // Severity Bar Chart
+            if (data.severities) {
+                severityBarChartInst.data.datasets[0].data = data.severities.data;
+                severityBarChartInst.update();
+            }
+        }
+
+        function filterAlertsTable() {
+            const queryText = document.getElementById('tableSearch').value.toLowerCase();
+            const sevFilter = document.getElementById('severityFilter').value;
+            
+            const filtered = globalAlertsCache.filter(alert => {
+                const matchesText = alert.query.toLowerCase().includes(queryText) || alert.source_ip.toLowerCase().includes(queryText) || alert.reason.toLowerCase().includes(queryText);
+                const matchesSev = sevFilter === "" || alert.severity === sevFilter;
+                return matchesText && matchesSev;
+            });
+            renderAlertsTable(filtered);
+        }
+
+        function renderAlertsTable(alerts) {
+            const tbody = document.getElementById('alertsTableBody'); 
+            tbody.innerHTML = '';
+            
+            if (alerts.length === 0) { 
+                tbody.innerHTML = '<tr><td colspan="8" class="px-6 py-10 text-center text-slate-400"><i class="fa-solid fa-shield-check text-emerald-400 text-lg mr-2"></i>No matching threat alerts found for the selected filters.</td></tr>'; 
+                return; 
+            }
+            
+            alerts.forEach(alert => {
+                let badge = '';
+                if (alert.severity === 'CRITICAL') badge = '<span class="bg-rose-500/20 text-rose-400 border border-rose-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">CRITICAL</span>';
+                else if (alert.severity === 'HIGH') badge = '<span class="bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">HIGH</span>';
+                else if (alert.severity === 'MEDIUM') badge = '<span class="bg-blue-500/20 text-blue-400 border border-blue-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">MEDIUM</span>';
+                else badge = '<span class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">LOW</span>';
+
+                let riskColor = alert.risk_score >= 75 ? 'text-rose-400 font-bold' : (alert.risk_score >= 50 ? 'text-amber-400 font-bold' : 'text-blue-400 font-semibold');
+                let displayQuery = alert.query.length > 40 ? alert.query.substring(0, 37) + '...' : alert.query;
+
+                const tr = document.createElement('tr'); 
+                tr.className = 'hover:bg-slate-900/60 transition-colors';
+                tr.innerHTML = `
+                    <td class="px-6 py-3.5 whitespace-nowrap text-slate-400 font-mono text-[11px]">${alert.timestamp}</td>
+                    <td class="px-6 py-3.5 font-mono text-blue-400 font-medium">${alert.source_ip}</td>
+                    <td class="px-6 py-3.5 font-mono text-slate-200" title="${alert.query}">${displayQuery}</td>
+                    <td class="px-6 py-3.5 text-slate-400 font-medium">${alert.qtype}</td>
+                    <td class="px-6 py-3.5 font-mono text-purple-300 font-semibold">${alert.entropy}</td>
+                    <td class="px-6 py-3.5 font-mono ${riskColor}">${alert.risk_score}/100</td>
+                    <td class="px-6 py-3.5 text-slate-300">${alert.reason}</td>
+                    <td class="px-6 py-3.5 whitespace-nowrap">${badge}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>
