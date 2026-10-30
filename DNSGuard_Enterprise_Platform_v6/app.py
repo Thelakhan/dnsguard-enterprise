@@ -6,7 +6,12 @@ from dnstd.parser import LogParser
 from dnstd.detector import DNSTunnelDetector
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
+
+# Use /tmp directory if running on serverless (like Vercel), otherwise use local uploads folder
+UPLOAD_FOLDER = '/tmp' if os.path.exists('/tmp') else 'uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
 
 RULES_FILE = 'rules.yaml'
@@ -54,15 +59,15 @@ def upload_files():
                 all_records.extend(records)
                 processed_files += 1
             except Exception as e:
-                # Cleanup and return error
-                if os.path.exists(filepath): os.remove(filepath)
-                return jsonify({'error': f'Error parsing {filename}: {str(e)}'}), 500
+                if os.path.exists(filepath): 
+                    os.remove(filepath)
+                return jsonify({'error': f'Parser error on {filename}: PCAP files require local system drivers. Please upload a .csv log file on Vercel.'}), 500
             finally:
                 if os.path.exists(filepath):
                     os.remove(filepath)
                     
     if not all_records:
-        return jsonify({'error': 'No valid DNS records found across uploaded files.'}), 400
+        return jsonify({'error': 'No valid DNS records found. Please upload a valid CSV log file.'}), 400
         
     try:
         results = detector.analyze(all_records)
