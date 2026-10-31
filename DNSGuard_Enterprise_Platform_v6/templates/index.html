@@ -438,7 +438,9 @@
             document.getElementById('kpiDomains').innerText = data.kpis.unique_domains.toLocaleString();
 
             globalAlertsCache = data.alerts || [];
-            renderAlertsTable(globalAlertsCache);
+            
+            // Re-apply the current filter selection when rendering
+            filterAlertsTable();
 
             // Compute auxiliary metrics for stats cards
             if (globalAlertsCache.length > 0) {
@@ -478,11 +480,12 @@
 
         function filterAlertsTable() {
             const queryText = document.getElementById('tableSearch').value.toLowerCase();
-            const sevFilter = document.getElementById('severityFilter').value;
+            const sevFilter = document.getElementById('severityFilter').value.toUpperCase();
             
             const filtered = globalAlertsCache.filter(alert => {
-                const matchesText = alert.query.toLowerCase().includes(queryText) || alert.source_ip.toLowerCase().includes(queryText) || alert.reason.toLowerCase().includes(queryText);
-                const matchesSev = sevFilter === "" || alert.severity === sevFilter;
+                const alertSev = alert.severity ? alert.severity.toUpperCase() : '';
+                const matchesText = alert.query.toLowerCase().includes(queryText) || alert.source_ip.toLowerCase().includes(queryText) || (alert.reason && alert.reason.toLowerCase().includes(queryText));
+                const matchesSev = sevFilter === "" || alertSev === sevFilter;
                 return matchesText && matchesSev;
             });
             renderAlertsTable(filtered);
@@ -499,9 +502,11 @@
             
             alerts.forEach(alert => {
                 let badge = '';
-                if (alert.severity === 'CRITICAL') badge = '<span class="bg-rose-500/20 text-rose-400 border border-rose-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">CRITICAL</span>';
-                else if (alert.severity === 'HIGH') badge = '<span class="bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">HIGH</span>';
-                else if (alert.severity === 'MEDIUM') badge = '<span class="bg-blue-500/20 text-blue-400 border border-blue-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">MEDIUM</span>';
+                const severity = alert.severity ? alert.severity.toUpperCase() : 'UNKNOWN';
+                
+                if (severity === 'CRITICAL') badge = '<span class="bg-rose-500/20 text-rose-400 border border-rose-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">CRITICAL</span>';
+                else if (severity === 'HIGH') badge = '<span class="bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">HIGH</span>';
+                else if (severity === 'MEDIUM') badge = '<span class="bg-blue-500/20 text-blue-400 border border-blue-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">MEDIUM</span>';
                 else badge = '<span class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2.5 py-1 rounded-md text-[10px] font-bold">LOW</span>';
 
                 let riskColor = alert.risk_score >= 75 ? 'text-rose-400 font-bold' : (alert.risk_score >= 50 ? 'text-amber-400 font-bold' : 'text-blue-400 font-semibold');
@@ -510,13 +515,13 @@
                 const tr = document.createElement('tr'); 
                 tr.className = 'hover:bg-slate-900/60 transition-colors';
                 tr.innerHTML = `
-                    <td class="px-6 py-3.5 whitespace-nowrap text-slate-400 font-mono text-[11px]">${alert.timestamp}</td>
-                    <td class="px-6 py-3.5 font-mono text-blue-400 font-medium">${alert.source_ip}</td>
+                    <td class="px-6 py-3.5 whitespace-nowrap text-slate-400 font-mono text-[11px]">${alert.timestamp || '-'}</td>
+                    <td class="px-6 py-3.5 font-mono text-blue-400 font-medium">${alert.source_ip || '-'}</td>
                     <td class="px-6 py-3.5 font-mono text-slate-200" title="${alert.query}">${displayQuery}</td>
-                    <td class="px-6 py-3.5 text-slate-400 font-medium">${alert.qtype}</td>
-                    <td class="px-6 py-3.5 font-mono text-purple-300 font-semibold">${alert.entropy}</td>
-                    <td class="px-6 py-3.5 font-mono ${riskColor}">${alert.risk_score}/100</td>
-                    <td class="px-6 py-3.5 text-slate-300">${alert.reason}</td>
+                    <td class="px-6 py-3.5 text-slate-400 font-medium">${alert.qtype || '-'}</td>
+                    <td class="px-6 py-3.5 font-mono text-purple-300 font-semibold">${alert.entropy !== undefined ? alert.entropy : '-'}</td>
+                    <td class="px-6 py-3.5 font-mono ${riskColor}">${alert.risk_score || 0}/100</td>
+                    <td class="px-6 py-3.5 text-slate-300">${alert.reason || '-'}</td>
                     <td class="px-6 py-3.5 whitespace-nowrap">${badge}</td>
                 `;
                 tbody.appendChild(tr);
