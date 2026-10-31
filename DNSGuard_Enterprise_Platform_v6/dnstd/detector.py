@@ -71,21 +71,25 @@ class DNSTunnelDetector:
 
             if reasons:
                 risk_score, severity = ThreatEnrichment.calculate_risk_score(features, reasons)
-                severity_counts[severity] += 1
-                timeline[time_key]['suspicious'] += 1
-                alerts.append({
-                    "timestamp": dt.strftime('%Y-%m-%d %H:%M:%S'),
-                    "source_ip": src_ip,
-                    "query": query,
-                    "qtype": qtype,
-                    "entropy": features['max_label_entropy'],
-                    "risk_score": risk_score,
-                    "severity": severity,
-                    "reason": " | ".join(reasons)
-                })
+                
+                # Baseline filter: ensure ultra-low risk events don't clutter the UI
+                if risk_score >= 10:
+                    severity_counts[severity] += 1
+                    timeline[time_key]['suspicious'] += 1
+                    alerts.append({
+                        "timestamp": dt.strftime('%Y-%m-%d %H:%M:%S'),
+                        "source_ip": src_ip,
+                        "query": query,
+                        "qtype": qtype,
+                        "entropy": features['max_label_entropy'],
+                        "risk_score": risk_score,
+                        "severity": severity,
+                        "reason": " | ".join(reasons)
+                    })
             else:
                 timeline[time_key]['normal'] += 1
 
+        # Sort highest risk first
         alerts.sort(key=lambda x: (x['risk_score'], x['timestamp']), reverse=True)
         sorted_times = sorted(timeline.keys())
 
@@ -109,5 +113,6 @@ class DNSTunnelDetector:
                 "labels": ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'],
                 "data": [severity_counts['CRITICAL'], severity_counts['HIGH'], severity_counts['MEDIUM'], severity_counts['LOW']]
             },
-            "alerts": alerts[:150]
+            # Expanded limit from 150 to 1000 to capture all severity tiers
+            "alerts": alerts[:1000]
         }
